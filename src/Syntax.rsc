@@ -17,7 +17,7 @@ syntax Question
   | Str Id ":" Type "=" Expr
   | "{" Question* "}"
   | "if" "(" Expr ")" Question "else" Question
-  | "if" "(" Expr ")" Question
+  | "if" "(" Expr ")" Question !>> "else"
   ;
 
 // Expression components: +, -, *, /, &&, ||, !, >, <, <=, >=, ==, !=, literals (bool, int, str)
