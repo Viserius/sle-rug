@@ -1,0 +1,16 @@
+form dev {
+  "First question label"
+    firstQuestion: boolean
+    
+  if(firstQuestion) {
+  
+  "Second Question Label"
+    secondQuestion: boolean
+    
+    if(secondQuestion) {
+      "third question label"
+        thirdQuestion: boolean
+    }
+  
+  }
+}

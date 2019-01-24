@@ -20,13 +20,162 @@ import lang::html5::DOM; // see standard library
 
 void compile(AForm f) {
   writeFile(f.src[extension="js"].top, form2js(f));
-  writeFile(f.src[extension="html"].top, toString(form2html(f)));
+  writeFile(f.src[extension="html"].top, myToString(form2html(f)));
 }
 
+/**
+  * Compile an Abstract Form to an HTML5Node
+  */
 HTML5Node form2html(AForm f) {
-  return html();
+  return html(
+    head(
+      title("Simple Query Language")
+    ),
+    body(
+      div(id("app"),
+        div([question2html(q) | AQuestion q <- f.questions])
+      ),        
+      script(src("https://cdn.jsdelivr.net/npm/vue/dist/vue.js")),
+      script(src(f.src[extension="js"].file))
+    )
+  );
 }
 
-str form2js(AForm f) {
-  return "";
+/**
+  * Compile an Abstract Question to a list of HTML5Nodes.
+  * We use a list, because we can then return multiple HTML5Nodes, for example for the question block
+  */
+HTML5Node question2html(AQuestion q) {
+  switch(q) {
+    case question(str thequestion, str questionName, AType questionType):
+      return div(
+        label(\for("<questionName>"), thequestion),
+        input(name(questionName), html5attr("v-model",questionName), type2html(q.questionType))
+      );
+    case computed(str thequestion, str questionName, AType questionType, AExpr expression):
+      return div(
+        label(\for("<questionName>"), thequestion),
+        input(name(questionName), html5attr("v-model",questionName), type2html(q.questionType), readonly([]))
+      );
+    case block(list[AQuestion] qs):
+      return div([question2html(q2) | AQuestion q2 <- qs]);
+    case ifThenElse(AExpr ifCondition, AQuestion thenQuestion, AQuestion ElseQuestion):
+      return 
+        div(html5attr("v-if",sourceLocationToIdentifier(ifCondition.src)), question2html(thenQuestion), question2html(ElseQuestion));
+    case ifThen(AExpr ifCondition, AQuestion thenQuestion):
+      return 
+        div(html5attr("v-if",sourceLocationToIdentifier(ifCondition.src)), question2html(thenQuestion));
+    default: throw "Unsupported question type encountered";
+  }
 }
+
+/*
+ * Map the type of the expression to an HTML5 input type such as checkboxes, text-fields or integer inputs
+ */
+HTML5Attr type2html(boolean()) = \type("checkbox");
+HTML5Attr type2html(string()) = \type("text");
+HTML5Attr type2html(integer()) = \type("number");
+
+/*
+ * Abstract Expressions are not similar to Concrete Expressions.
+ * Abstract Expressions are a tree, and we can therefore not use them directly in javascript and html
+ * Instead, we create a mapping from the loc expression.src -> str htmlIdentifierOfExpression
+ */
+str sourceLocationToIdentifier(loc source)
+  =  "expr_<source.offset>_<source.length>_<source.begin.line>_<source.begin.column>_<source.end.line>_<source.end.column>";
+
+
+/**
+  * We need to translate the entirety of the Query Language into a fully functional JS-Application
+  * We will use VueJS to accomplish this
+  */
+str form2js(AForm f) {
+  return "var app = new Vue({
+         '  el: \'#app\',
+         '  data: {
+         '    <for (/AQuestion q := f) {>
+         '    <if (q has name && !(q has expression)) {>
+         '    <q.name>: <type2js(q.questionType)>,
+         '    <}>
+         '    <}>
+         '  },
+         '  computed: {
+         '    // All computed questions
+         '    <for (/AQuestion q := f) {>
+         '    <if (q has name && q has expression) {>
+         '    <q.name>:  function() {
+         '      return <expr2js(q.expression)>;
+         '    },
+         '    <}>
+         '    <}>
+         '
+         '    // Also put Conditional Expressions (in the QL-if) in variables, for hiding/showing sections
+         '    <for (/AQuestion q := f) {>
+         '    <if (q has ifCondition && q has thenQuestion) {>
+         '    <sourceLocationToIdentifier(q.ifCondition.src)>:  function() {
+         '      return <expr2js(q.ifCondition)>;
+         '    },
+         '    <}>
+         '    <}>
+         '  }
+         '});
+         ";
+}
+
+/**
+  * Abstract Expressions should be compiled into javascript. Example: addition(AExpr a, AExpr b) -> expr2js(a) + expr2js(b)
+  * Use Abstract definitions here
+  */
+str expr2js(AExpr ex) {
+  switch(ex) {
+    case ref(str name):
+      return "this.<name>";
+   	case string(str s):
+   	  return "<s>";
+   	case boolean(true):
+	  return "true";
+   	case boolean(false):
+	  return "false";
+   	case integer(int i):
+   	  return "<i>";
+   	case negation(AExpr ex2): 
+   	  return "!" + expr2js(ex2);
+   	case parentheses(AExpr ex2):
+   	  return "(" + expr2js(ex2) + ")";
+    case multiply(AExpr ex1, AExpr ex2): 
+   	  return expr2js(ex1) + "*" + expr2js(ex2);
+    case divide(AExpr ex1, AExpr ex2): 
+      return expr2js(ex1) + "/" + expr2js(ex2);
+    case addition(AExpr ex1, AExpr ex2): 
+      return expr2js(ex1) + "+" + expr2js(ex2);
+    case subtraction(AExpr ex1, AExpr ex2): 
+      return expr2js(ex1) + "-" + expr2js(ex2);
+    case greaterThan(AExpr ex1, AExpr ex2):
+       return expr2js(ex1) + "\>" + expr2js(ex2);
+    case lessThan(AExpr ex1, AExpr ex2):       
+      return expr2js(ex1) + "\<" + expr2js(ex2);
+    case lessThanEq(AExpr ex1, AExpr ex2): 
+      return expr2js(ex1) + "\<=" + expr2js(ex2);
+    case greaterThanEq(AExpr ex1, AExpr ex2): 
+      return expr2js(ex1) + "\>=" + expr2js(ex2);
+    case equals(AExpr ex1, AExpr ex2): 
+      return expr2js(ex1) + "==" + expr2js(ex2);
+    case notEquals(AExpr ex1, AExpr ex2): 
+      return expr2js(ex1) + "!=" + expr2js(ex2);
+    case and(AExpr ex1, AExpr ex2): 
+      return expr2js(ex1) + "&&" + expr2js(ex2);
+    case or(AExpr ex1, AExpr ex2): 
+      return expr2js(ex1) + "||" + expr2js(ex2);
+    default: throw "Unsupported expression <ex>";
+  }
+}
+
+str myToString(HTML5Node x) { 
+  attrs = { k | HTML5Attr k <- x.kids };  
+  kids = [ k | HTML5Node k <- x.kids ];  
+  return nodeToString(x.name, attrs, kids); 
+}
+
+str type2js(boolean()) = "false";
+str type2js(string()) = "\'\'";
+str type2js(integer()) = "0";
